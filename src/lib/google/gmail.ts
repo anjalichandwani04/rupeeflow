@@ -100,7 +100,38 @@ const GENERIC_AMOUNT: RegExp[] = [
 
 const GENERIC_MERCHANT: RegExp[] = [/\bat\s+([A-Z0-9][A-Z0-9 &._/-]{2,60})\b/i];
 
+// export function parseTransactionSnippet(snippet: string) {
+//   const preferred = PATTERNS.filter((p) => (p.hint ? p.hint.test(snippet) : false));
+//   const ordered = preferred.length ? [...preferred, ...PATTERNS.filter((p) => !preferred.includes(p))] : PATTERNS;
+
+//   for (const p of ordered) {
+//     let amount: number | undefined;
+//     for (const re of p.amount) {
+//       amount = parseAmountWithRegex(snippet, re);
+//       if (amount !== undefined) break;
+//     }
+//     const merchant = pickMerchant(snippet, p.merchant);
+//     if (amount !== undefined || merchant) {
+//       return { amount, merchant, parser: p.name };
+//     }
+//   }
+
+//   let amount: number | undefined;
+//   for (const re of GENERIC_AMOUNT) {
+//     amount = parseAmountWithRegex(snippet, re);
+//     if (amount !== undefined) break;
+//   }
+//   const merchant = pickMerchant(snippet, GENERIC_MERCHANT);
+//   return { amount, merchant, parser: "Generic" };
+// }
+
 export function parseTransactionSnippet(snippet: string) {
+  const lowerSnippet = snippet.toLowerCase();
+  
+  // 1. Determine if it's a Credit or Debit
+  const isCredit = lowerSnippet.includes("credited") || lowerSnippet.includes("received");
+  const type = isCredit ? "credit" : "debit";
+
   const preferred = PATTERNS.filter((p) => (p.hint ? p.hint.test(snippet) : false));
   const ordered = preferred.length ? [...preferred, ...PATTERNS.filter((p) => !preferred.includes(p))] : PATTERNS;
 
@@ -112,17 +143,18 @@ export function parseTransactionSnippet(snippet: string) {
     }
     const merchant = pickMerchant(snippet, p.merchant);
     if (amount !== undefined || merchant) {
-      return { amount, merchant, parser: p.name };
+      return { amount, merchant, parser: p.name, type }; // Added type here
     }
   }
 
+  // Generic fallback
   let amount: number | undefined;
   for (const re of GENERIC_AMOUNT) {
     amount = parseAmountWithRegex(snippet, re);
     if (amount !== undefined) break;
   }
   const merchant = pickMerchant(snippet, GENERIC_MERCHANT);
-  return { amount, merchant, parser: "Generic" };
+  return { amount, merchant, parser: "Generic", type }; // Added type here
 }
 
 /**

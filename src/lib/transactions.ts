@@ -7,6 +7,7 @@ export type TransactionRow = {
   merchant: string;
   amount: number;
   category?: string | null;
+  type: 'debit' | 'credit'; // 1. Added type to the definition
   created_at: string;
 };
 
@@ -14,7 +15,8 @@ export async function listTransactionsForUser(email: string, limit = 50) {
   const supabase = supabaseAdmin();
   const { data, error } = await supabase
     .from("transactions")
-    .select("id,user_email,date,merchant,amount,category,created_at")
+    // 2. Added 'type' to the select query
+    .select("id,user_email,date,merchant,amount,category,type,created_at")
     .eq("user_email", email)
     .order("date", { ascending: false })
     .limit(limit);
@@ -37,6 +39,7 @@ export async function insertDemoSyncedTransaction(email: string) {
     date: yyyyMmDd,
     merchant,
     amount,
+    type: 'debit', // Default demo transactions to debit
   });
 
   if (error) throw error;
@@ -48,6 +51,7 @@ export type NewTransactionInput = {
   merchant: string;
   amount: number;
   category?: string;
+  type?: 'debit' | 'credit'; // 3. Added type to input
 };
 
 export async function insertTransactions(rows: NewTransactionInput[]) {
@@ -56,4 +60,3 @@ export async function insertTransactions(rows: NewTransactionInput[]) {
   const { error } = await supabase.from("transactions").insert(rows);
   if (error) throw error;
 }
-

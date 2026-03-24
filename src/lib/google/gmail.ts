@@ -9,6 +9,9 @@ export type GmailPreviewItem = {
   };
 };
 
+/**
+ * Helper to extract numeric amounts (e.g., 500.00) from bank strings
+ */
 function parseAmountWithRegex(snippet: string, re: RegExp): number | undefined {
   const m = snippet.match(re);
   if (!m) return undefined;
@@ -18,6 +21,9 @@ function parseAmountWithRegex(snippet: string, re: RegExp): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Helper to extract merchant names from strings like "at Zomato" or "to Starbucks"
+ */
 function pickMerchant(snippet: string, patterns: RegExp[]): string | undefined {
   const cleaned = snippet.replace(/\s+/g, " ").trim();
   for (const re of patterns) {
@@ -34,9 +40,12 @@ type ParserPattern = {
   name: string;
   amount: RegExp[];
   merchant: RegExp[];
-  hint?: RegExp; // quick check to prefer the pattern
+  hint?: RegExp; 
 };
 
+/**
+ * Bank-specific patterns for HDFC, ICICI, and generic UPI apps
+ */
 const PATTERNS: ParserPattern[] = [
   {
     name: "HDFC",
@@ -92,7 +101,6 @@ const GENERIC_AMOUNT: RegExp[] = [
 const GENERIC_MERCHANT: RegExp[] = [/\bat\s+([A-Z0-9][A-Z0-9 &._/-]{2,60})\b/i];
 
 export function parseTransactionSnippet(snippet: string) {
-  // Prefer patterns whose hint matches; otherwise still try all.
   const preferred = PATTERNS.filter((p) => (p.hint ? p.hint.test(snippet) : false));
   const ordered = preferred.length ? [...preferred, ...PATTERNS.filter((p) => !preferred.includes(p))] : PATTERNS;
 
@@ -108,7 +116,6 @@ export function parseTransactionSnippet(snippet: string) {
     }
   }
 
-  // Generic fallback: any currency + "at <merchant>"
   let amount: number | undefined;
   for (const re of GENERIC_AMOUNT) {
     amount = parseAmountWithRegex(snippet, re);
@@ -118,10 +125,12 @@ export function parseTransactionSnippet(snippet: string) {
   return { amount, merchant, parser: "Generic" };
 }
 
-export async function fetchLatestTransactionEmails(accessToken: string, maxResults = 10) {
-  // Gmail search query: keyword-based (flexible across banks).
-  // Using OR keeps it broad while still relevant.
-  const q = "(debited OR spent OR transaction)";
+/**
+ * Main Fetcher: Only grabs emails containing "debited" or "credited"
+ */
+export async function fetchLatestTransactionEmails(accessToken: string, maxResults = 15) {
+  // 🎯 Search Query: Filters for banking keywords and excludes noise
+  const q = '(debited OR credited OR "transaction alert" OR "spent") -newsletter -promotion -statement';
 
   const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
   listUrl.searchParams.set("q", q);
@@ -130,6 +139,7 @@ export async function fetchLatestTransactionEmails(accessToken: string, maxResul
   const listRes = await fetch(listUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+
   if (!listRes.ok) {
     const text = await listRes.text();
     throw new Error(`Gmail list failed: ${listRes.status} ${text}`);
@@ -145,23 +155,29 @@ export async function fetchLatestTransactionEmails(accessToken: string, maxResul
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!msgRes.ok) continue;
+
     const msgJson = (await msgRes.json()) as {
       id: string;
       snippet?: string;
       internalDate?: string;
     };
+
     const snippet = msgJson.snippet ?? "";
     const internalDateMs = msgJson.internalDate ? Number(msgJson.internalDate) : NaN;
     const date = Number.isFinite(internalDateMs)
       ? new Date(internalDateMs).toISOString().slice(0, 10)
       : new Date().toISOString().slice(0, 10);
 
-    items.push({
-      id: msgJson.id,
-      date,
-      snippet,
-      parsed: parseTransactionSnippet(snippet),
-    });
+    // Final safety check: ignore if snippet doesn't actually contain a money keyword
+    const lowerSnippet = snippet.toLowerCase();
+    if (lowerSnippet.includes("debited") || lowerSnippet.includes("credited") || lowerSnippet.includes("spent")) {
+      items.push({
+        id: msgJson.id,
+        date,
+        snippet,
+        parsed: parseTransactionSnippet(snippet),
+      });
+    }
   }
 
   return items;
@@ -195,4 +211,3 @@ export async function fetchMessagesByIds(accessToken: string, ids: string[]) {
   }
   return items;
 }
-

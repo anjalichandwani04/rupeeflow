@@ -1,9 +1,20 @@
+/**
+ * Formats INR. Handles negatives without crashing; shows a leading minus (e.g. -₹400.00).
+ */
 export function formatINR(amount: number) {
-  return new Intl.NumberFormat("en-IN", {
+  if (!Number.isFinite(amount)) {
+    return "—";
+  }
+  const formatted = new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(Math.abs(amount));
+
+  if (amount < 0) {
+    return `-${formatted}`;
+  }
+  return formatted;
 }
 
 export type Category =
@@ -26,4 +37,3 @@ export function categorizeMerchant(merchant: string): Category {
   if (/(upi|transfer|imps|neft|rtgs)/.test(m)) return "Transfers";
   return "Other";
 }
-

@@ -7,7 +7,8 @@ export type TransactionRow = {
   merchant: string;
   amount: number;
   category?: string | null;
-  type: 'debit' | 'credit'; // 1. Added type to the definition
+  /** Defaults to debit in UI when missing (legacy rows). */
+  type?: "debit" | "credit" | null;
   created_at: string;
 };
 
@@ -39,7 +40,7 @@ export async function insertDemoSyncedTransaction(email: string) {
     date: yyyyMmDd,
     merchant,
     amount,
-    type: 'debit', // Default demo transactions to debit
+    type: "debit",
   });
 
   if (error) throw error;
@@ -51,7 +52,7 @@ export type NewTransactionInput = {
   merchant: string;
   amount: number;
   category?: string;
-  type?: 'debit' | 'credit'; // 3. Added type to input
+  type?: "debit" | "credit";
 };
 
 export async function insertTransactions(rows: NewTransactionInput[]) {

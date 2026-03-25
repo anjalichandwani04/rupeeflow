@@ -62,7 +62,10 @@ export async function insertTransactions(rows: NewTransactionInput[]) {
     ...row,
     type: row.type ?? "debit",
   }));
-  const { error } = await supabase.from("transactions").insert(normalizedRows);
+  const { error } = await supabase.from("transactions").upsert(normalizedRows, {
+    onConflict: "user_email,date,merchant,amount",
+    ignoreDuplicates: true,
+  });
   if (error) throw error;
 }
 

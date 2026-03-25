@@ -133,7 +133,13 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <GmailPreview />
+      <GmailPreview
+        existingTransactions={transactions.map((t) => ({
+          date: t.date,
+          merchant: t.merchant,
+          amount: Number(t.amount) || 0,
+        }))}
+      />
 
       <div className="overflow-hidden rounded-2xl border border-black/10 dark:border-white/10">
         <div className="flex items-center justify-between border-b border-black/10 bg-black/5 px-4 py-3 dark:border-white/10 dark:bg-white/10">

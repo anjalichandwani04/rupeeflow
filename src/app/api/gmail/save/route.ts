@@ -48,7 +48,12 @@ export async function POST(req: NextRequest) {
         Number.isFinite(r.amount),
     );
 
-  await insertTransactions(rows);
+  try {
+    await insertTransactions(rows);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to save transactions";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
   return NextResponse.json({ saved: rows.length, requested: items.length });
 }

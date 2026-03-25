@@ -12,6 +12,12 @@ type PreviewItem = {
   parsed: { amount?: number; merchant?: string; type?: "debit" | "credit" };
 };
 
+type ExistingTransactionKey = {
+  date: string;
+  merchant: string;
+  amount: number;
+};
+
 function formatINR(amount: number) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -20,13 +26,40 @@ function formatINR(amount: number) {
   }).format(amount);
 }
 
-export function GmailPreview() {
+function keyForTransaction(x: ExistingTransactionKey) {
+  return `${x.date}|${x.merchant.trim().toLowerCase()}|${Number(x.amount).toFixed(2)}`;
+}
+
+export function GmailPreview({
+  existingTransactions,
+}: {
+  existingTransactions: ExistingTransactionKey[];
+}) {
   const router = useRouter();
   const [items, setItems] = useState<PreviewItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [isFetching, startFetching] = useTransition();
   const [isSaving, startSaving] = useTransition();
+  const syncedSet = new Set(existingTransactions.map(keyForTransaction));
+
+  const unsyncedItems = items.filter((item) => {
+    if (
+      typeof item.parsed.amount !== "number" ||
+      !Number.isFinite(item.parsed.amount) ||
+      typeof item.parsed.merchant !== "string" ||
+      item.parsed.merchant.trim().length === 0
+    ) {
+      return false;
+    }
+    return !syncedSet.has(
+      keyForTransaction({
+        date: item.date,
+        merchant: item.parsed.merchant,
+        amount: item.parsed.amount,
+      }),
+    );
+  });
 
   return (
     <div className="overflow-hidden rounded-2xl border border-black/10 dark:border-white/10">
@@ -65,7 +98,7 @@ export function GmailPreview() {
           </button>
           <button
             type="button"
-            disabled={isSaving || items.length === 0}
+            disabled={isSaving || unsyncedItems.length === 0}
             onClick={() =>
               startSaving(async () => {
                 setError(null);
@@ -74,7 +107,7 @@ export function GmailPreview() {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
-                    items: items.map((item) => ({
+                    items: unsyncedItems.map((item) => ({
                       date: item.date,
                       parsed: {
                         amount: item.parsed.amount,
@@ -105,7 +138,7 @@ export function GmailPreview() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            {isSaving ? "Saving…" : "Save to Supabase"}
+            {isSaving ? "Saving…" : unsyncedItems.length === 0 ? "Already Synced" : "Save to Supabase"}
           </button>
         </div>
       </div>
@@ -161,10 +194,24 @@ export function GmailPreview() {
           {items.map((i) => (
             <div key={i.id} className="grid grid-cols-3 gap-2 px-4 py-3 text-sm">
               <div className="tabular-nums text-black/70 dark:text-white/70">{i.date}</div>
-              <div className="font-medium">
+              <div className="flex items-center gap-2 font-medium">
                 {i.parsed.merchant ?? (
                   <span className="text-black/40 dark:text-white/40">Unparsed</span>
                 )}
+                {typeof i.parsed.amount === "number" &&
+                typeof i.parsed.merchant === "string" &&
+                i.parsed.merchant.trim().length > 0 &&
+                syncedSet.has(
+                  keyForTransaction({
+                    date: i.date,
+                    merchant: i.parsed.merchant,
+                    amount: i.parsed.amount,
+                  }),
+                ) ? (
+                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                    Synced
+                  </span>
+                ) : null}
               </div>
               <div className="text-right tabular-nums">
                 {typeof i.parsed.amount === "number" ? (

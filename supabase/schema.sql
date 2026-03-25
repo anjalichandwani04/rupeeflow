@@ -7,6 +7,7 @@ create table if not exists public.transactions (
   date date not null,
   merchant text not null,
   amount numeric(12,2) not null,
+  type text not null default 'debit',
   category text not null default 'Other',
   created_at timestamptz not null default now()
 );
@@ -17,6 +18,12 @@ create index if not exists transactions_user_email_date_idx
 -- If the table was created without `category`, add it.
 alter table public.transactions
   add column if not exists category text not null default 'Other';
+
+alter table public.transactions
+  add column if not exists type text not null default 'debit';
+
+create unique index if not exists transactions_dedupe_unique_idx
+  on public.transactions (user_email, date, merchant, amount);
 
 -- Per-user settings (manual monthly budget)
 create table if not exists public.user_settings (

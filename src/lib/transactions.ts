@@ -61,3 +61,41 @@ export async function insertTransactions(rows: NewTransactionInput[]) {
   const { error } = await supabase.from("transactions").insert(rows);
   if (error) throw error;
 }
+
+const DEFAULT_MONTHLY_BUDGET = 25_000;
+
+export async function getMonthlyBudget(email: string): Promise<number> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("user_settings")
+    .select("monthly_budget")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (error) throw error;
+  const v = data?.monthly_budget;
+  if (v === null || v === undefined) return DEFAULT_MONTHLY_BUDGET;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : DEFAULT_MONTHLY_BUDGET;
+}
+
+export async function updateMonthlyBudget(email: string, amount: number) {
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error("Invalid monthly budget");
+  }
+  const supabase = supabaseAdmin();
+  const { error } = await supabase.from("user_settings").upsert(
+    { email, monthly_budget: amount },
+    { onConflict: "email" },
+  );
+  if (error) throw error;
+}
+
+export async function clearUserTransactions(email: string) {
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("transactions")
+    .delete()
+    .eq("user_email", email);
+  if (error) throw error;
+}

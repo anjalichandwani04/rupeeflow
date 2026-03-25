@@ -18,3 +18,11 @@ create index if not exists transactions_user_email_date_idx
 alter table public.transactions
   add column if not exists category text not null default 'Other';
 
+-- Per-user settings (manual monthly budget)
+create table if not exists public.user_settings (
+  email text primary key,
+  monthly_budget numeric(12,2) not null default 25000
+);
+
+create index if not exists user_settings_email_idx on public.user_settings (email);
+

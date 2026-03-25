@@ -2,8 +2,10 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { ArrowUpRight, IndianRupee, ListOrdered, PiggyBank, Sparkles } from "lucide-react";
 import { authOptions } from "@/lib/auth";
-import { listTransactionsForUser } from "@/lib/transactions";
+import { getMonthlyBudget, listTransactionsForUser } from "@/lib/transactions";
 import { GmailPreview } from "./GmailPreview";
+import { BudgetEditor } from "./BudgetEditor";
+import { ResetButton } from "./ResetButton";
 import { categorizeMerchant, formatINR } from "@/lib/finance";
 import { SpendingByCategoryChart } from "./SpendingByCategoryChart";
 
@@ -12,7 +14,10 @@ export default async function DashboardPage() {
   const email = session?.user?.email;
   if (!email) redirect("/api/auth/signin?callbackUrl=/dashboard");
 
-  const transactions = await listTransactionsForUser(email);
+  const [transactions, monthlyBudget] = await Promise.all([
+    listTransactionsForUser(email),
+    getMonthlyBudget(email),
+  ]);
 
   let totalSpent = 0;
   for (const t of transactions) {
@@ -24,8 +29,6 @@ export default async function DashboardPage() {
     }
   }
 
-  const monthlyBudget = 25_000;
-  
   const byCategory = new Map<string, number>();
   for (const t of transactions) {
     // 📁 CATEGORY FIX: Usually, we only want to chart actual spending (debits)
@@ -42,8 +45,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div className="space-y-2">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
           <div className="inline-flex items-center gap-2 text-sm text-black/60 dark:text-white/60">
             <IndianRupee className="h-4 w-4" />
             <span>RupeeFlow Dashboard</span>
@@ -53,6 +56,7 @@ export default async function DashboardPage() {
             Signed in as <span className="font-medium">{email}</span>
           </p>
         </div>
+        <ResetButton />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -92,9 +96,7 @@ export default async function DashboardPage() {
               <PiggyBank className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-3 text-xs text-black/50 dark:text-white/50">
-            Budget limit tracker
-          </div>
+          <BudgetEditor key={monthlyBudget} initialBudget={monthlyBudget} />
           <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-fuchsia-400/20 to-amber-400/0 blur-2xl" />
         </div>
 

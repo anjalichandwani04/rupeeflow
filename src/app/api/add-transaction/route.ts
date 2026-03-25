@@ -7,6 +7,7 @@ type Body = {
   amount: number | string;
   merchant: string;
   category?: string;
+  type?: "debit" | "credit";
   // Optional: let callers override the transaction date.
   date?: string; // expected YYYY-MM-DD
 };
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     typeof body.category === "string" && body.category.trim().length > 0
       ? body.category.trim()
       : "Other";
+  const type = body.type === "credit" ? "credit" : "debit";
 
   const amountNum =
     typeof body.amount === "string"
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest) {
     merchant,
     amount: amountNum,
     category,
+    type,
   });
 
   if (error) {

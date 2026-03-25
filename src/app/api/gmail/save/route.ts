@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     | {
         items?: Array<{
           date?: string;
-          parsed?: { amount?: number; merchant?: string };
+          parsed?: { amount?: number; merchant?: string; type?: "debit" | "credit" };
         }>;
       }
     | null;
@@ -30,9 +30,18 @@ export async function POST(req: NextRequest) {
       date: typeof i.date === "string" ? i.date : new Date().toISOString().slice(0, 10),
       merchant: i.parsed?.merchant,
       amount: i.parsed?.amount,
+      type: i.parsed?.type ?? "debit",
     }))
     .filter(
-      (r): r is { user_email: string; date: string; merchant: string; amount: number } =>
+      (
+        r,
+      ): r is {
+        user_email: string;
+        date: string;
+        merchant: string;
+        amount: number;
+        type: "debit" | "credit";
+      } =>
         typeof r.merchant === "string" &&
         r.merchant.length > 0 &&
         typeof r.amount === "number" &&

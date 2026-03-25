@@ -58,7 +58,11 @@ export type NewTransactionInput = {
 export async function insertTransactions(rows: NewTransactionInput[]) {
   if (rows.length === 0) return;
   const supabase = supabaseAdmin();
-  const { error } = await supabase.from("transactions").insert(rows);
+  const normalizedRows = rows.map((row) => ({
+    ...row,
+    type: row.type ?? "debit",
+  }));
+  const { error } = await supabase.from("transactions").insert(normalizedRows);
   if (error) throw error;
 }
 

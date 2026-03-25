@@ -9,7 +9,7 @@ type PreviewItem = {
   id: string;
   date: string;
   snippet: string;
-  parsed: { amount?: number; merchant?: string };
+  parsed: { amount?: number; merchant?: string; type?: "debit" | "credit" };
 };
 
 function formatINR(amount: number) {
@@ -73,7 +73,16 @@ export function GmailPreview() {
                 const res = await fetch("/api/gmail/save", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ items }),
+                  body: JSON.stringify({
+                    items: items.map((item) => ({
+                      date: item.date,
+                      parsed: {
+                        amount: item.parsed.amount,
+                        merchant: item.parsed.merchant,
+                        type: item.parsed.type,
+                      },
+                    })),
+                  }),
                 });
                 const json = (await res.json()) as {
                   saved?: number;

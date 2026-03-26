@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, Download, Loader2, Save, TriangleAlert } from "lucide-react";
+import { Calendar, CheckCircle2, Download, Loader2, Save, TriangleAlert } from "lucide-react";
 
 type PreviewItem = {
   id: string;
@@ -30,12 +30,25 @@ function keyForTransaction(x: ExistingTransactionKey) {
   return `${x.date}|${x.merchant.trim().toLowerCase()}|${Number(x.amount).toFixed(2)}`;
 }
 
+function localYmd(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function GmailPreview({
   existingTransactions,
 }: {
   existingTransactions: ExistingTransactionKey[];
 }) {
   const router = useRouter();
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return localYmd(d);
+  });
+  const [endDate, setEndDate] = useState(() => localYmd(new Date()));
   const [items, setItems] = useState<PreviewItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
@@ -63,17 +76,48 @@ export function GmailPreview({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-black/10 dark:border-white/10">
-      <div className="flex flex-col gap-3 border-b border-black/10 bg-black/5 px-4 py-3 dark:border-white/10 dark:bg-white/10 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 border-b border-black/10 bg-black/5 px-4 py-3 dark:border-white/10 dark:bg-white/10 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-medium">Gmail preview (transaction emails)</p>
           <p className="text-sm text-black/60 dark:text-white/60">
-            Fetch the 10 most recent emails matching keywords like{" "}
+            Fetch up to 10 emails in the selected date range matching keywords like{" "}
             <span className="font-medium">debited</span>,{" "}
             <span className="font-medium">spent</span>, or{" "}
             <span className="font-medium">transaction</span>, parse Amount + Merchant, then save.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[min(100%,20rem)] sm:items-end">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex min-w-[10rem] flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-black/50 dark:text-white/50">
+                Start date
+              </span>
+              <span className="relative flex items-center">
+                <Calendar className="pointer-events-none absolute left-2.5 h-4 w-4 text-black/40 dark:text-white/40" />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:focus-visible:ring-white/20"
+                />
+              </span>
+            </label>
+            <label className="flex min-w-[10rem] flex-col gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-black/50 dark:text-white/50">
+                End date
+              </span>
+              <span className="relative flex items-center">
+                <Calendar className="pointer-events-none absolute left-2.5 h-4 w-4 text-black/40 dark:text-white/40" />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:focus-visible:ring-white/20"
+                />
+              </span>
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={isFetching}
@@ -81,7 +125,10 @@ export function GmailPreview({
               startFetching(async () => {
                 setError(null);
                 setSavedCount(null);
-                const res = await fetch("/api/gmail/preview");
+                const params = new URLSearchParams();
+                params.set("startDate", startDate);
+                params.set("endDate", endDate);
+                const res = await fetch(`/api/gmail/preview?${params.toString()}`);
                 const json = (await res.json()) as { items?: PreviewItem[]; error?: string };
                 if (!res.ok) {
                   setError(json.error ?? "Failed to fetch Gmail preview");
@@ -94,7 +141,7 @@ export function GmailPreview({
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-black dark:hover:bg-white/80"
           >
             <Download className="h-4 w-4" />
-            {isFetching ? "Fetching…" : "Fetch latest"}
+            {isFetching ? "Fetching…" : "Fetch"}
           </button>
           <button
             type="button"
@@ -140,6 +187,7 @@ export function GmailPreview({
             )}
             {isSaving ? "Saving…" : unsyncedItems.length === 0 ? "Already Synced" : "Save to Supabase"}
           </button>
+          </div>
         </div>
       </div>
 

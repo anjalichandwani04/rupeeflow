@@ -157,12 +157,60 @@ export function parseTransactionSnippet(snippet: string) {
   return { amount, merchant, parser: "Generic", type }; // Added type here
 }
 
+/** `YYYY-MM-DD` → `YYYY/MM/DD` for Gmail `after:` / `before:` operators */
+export function toGmailSlashDate(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) throw new Error(`Invalid date (expected YYYY-MM-DD): ${ymd}`);
+  return `${m[1]}/${m[2]}/${m[3]}`;
+}
+
+export type GmailFetchDateRange = {
+  /** Inclusive start, `YYYY-MM-DD` */
+  startDate?: string;
+  /** Inclusive end, `YYYY-MM-DD` */
+  endDate?: string;
+};
+
+/** Add calendar days to `YYYY-MM-DD` (local date arithmetic). */
+function addDaysToYmd(ymd: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) throw new Error(`Invalid date: ${ymd}`);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function buildTransactionSearchQuery(range?: GmailFetchDateRange): string {
+  const base =
+    '(debited OR credited OR "transaction alert" OR "spent") -newsletter -promotion -statement';
+  const parts: string[] = [base];
+
+  if (range?.startDate) {
+    parts.push(`after:${toGmailSlashDate(range.startDate)}`);
+  }
+  if (range?.endDate) {
+    // Gmail `before:` is exclusive; use the day after endDate so endDate is inclusive.
+    parts.push(`before:${toGmailSlashDate(addDaysToYmd(range.endDate, 1))}`);
+  }
+
+  return parts.join(" ");
+}
+
 /**
- * Main Fetcher: Only grabs emails containing "debited" or "credited"
+ * Fetches recent transaction-like emails. Optional date range uses Gmail `after:` / `before:`.
  */
-export async function fetchLatestTransactionEmails(accessToken: string, maxResults = 15) {
-  // 🎯 Search Query: Filters for banking keywords and excludes noise
-  const q = '(debited OR credited OR "transaction alert" OR "spent") -newsletter -promotion -statement';
+export async function fetchLatestTransactionEmails(
+  accessToken: string,
+  maxResults = 15,
+  range?: GmailFetchDateRange,
+) {
+  const q = buildTransactionSearchQuery(range);
 
   const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
   listUrl.searchParams.set("q", q);

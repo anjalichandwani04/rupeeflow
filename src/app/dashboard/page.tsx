@@ -1,6 +1,13 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { ArrowUpRight, IndianRupee, ListOrdered, PiggyBank, Sparkles } from "lucide-react";
+import {
+  ArrowUpRight,
+  IndianRupee,
+  ListOrdered,
+  PiggyBank,
+  Sparkles,
+  Wallet,
+} from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import { getMonthlyBudget, listTransactionsForUser } from "@/lib/transactions";
 import { GmailPreview } from "./GmailPreview";
@@ -28,6 +35,23 @@ export default async function DashboardPage() {
       totalSpent += amount;
     }
   }
+
+  const now = new Date();
+  const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthLabel = now.toLocaleString("en-IN", { month: "long", year: "numeric" });
+
+  let monthCreditsTotal = 0;
+  let monthDebitsTotal = 0;
+  for (const t of transactions) {
+    if (!t.date?.startsWith(currentMonthPrefix)) continue;
+    const amount = Number(t.amount) || 0;
+    if (t.type === "credit") {
+      monthCreditsTotal += amount;
+    } else {
+      monthDebitsTotal += amount;
+    }
+  }
+  const monthlyNet = monthCreditsTotal - monthDebitsTotal;
 
   const byCategory = new Map<string, number>();
   for (const t of transactions) {
@@ -59,7 +83,7 @@ export default async function DashboardPage() {
         <ResetButton />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -82,6 +106,31 @@ export default async function DashboardPage() {
             Net balance across {transactions.length} transactions
           </div>
           <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-emerald-400/25 to-sky-400/0 blur-2xl" />
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-black/60 dark:text-white/60">This month</p>
+              <p
+                className={`mt-1 text-2xl font-semibold tracking-tight ${
+                  monthlyNet >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-rose-600 dark:text-rose-400"
+                }`}
+              >
+                {formatINR(monthlyNet)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-black/5 p-2 text-black dark:bg-white/10 dark:text-white">
+              <Wallet className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3 text-xs text-black/50 dark:text-white/50">
+            {monthLabel}: credits ({formatINR(monthCreditsTotal)}) − debits (
+            {formatINR(monthDebitsTotal)})
+          </div>
+          <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gradient-to-br from-amber-400/20 to-emerald-400/0 blur-2xl" />
         </div>
 
         <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">

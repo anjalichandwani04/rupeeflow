@@ -13,7 +13,8 @@ import { getMonthlyBudget, listTransactionsForUser } from "@/lib/transactions";
 import { GmailPreview } from "./GmailPreview";
 import { BudgetEditor } from "./BudgetEditor";
 import { ResetButton } from "./ResetButton";
-import { categorizeMerchant, formatINR } from "@/lib/finance";
+import { formatINR, resolveCategory } from "@/lib/finance";
+import { TransactionCategorySelect } from "./TransactionCategorySelect";
 import { SpendingByCategoryChart } from "./SpendingByCategoryChart";
 
 export default async function DashboardPage() {
@@ -58,7 +59,7 @@ export default async function DashboardPage() {
     // 📁 CATEGORY FIX: Usually, we only want to chart actual spending (debits)
     if (t.type === "credit") continue; 
     
-    const category = categorizeMerchant(t.merchant);
+    const category = resolveCategory(t.category, t.merchant);
     byCategory.set(category, (byCategory.get(category) ?? 0) + (Number(t.amount) || 0));
   }
 
@@ -173,7 +174,7 @@ export default async function DashboardPage() {
           <div>
             <p className="text-sm font-medium">Spending by category</p>
             <p className="text-sm text-black/60 dark:text-white/60">
-              Auto-categorized (Excludes Credits)
+              Uses saved category (override in the table below)
             </p>
           </div>
         </div>
@@ -198,9 +199,10 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 border-b border-black/10 bg-background px-4 py-2 text-xs font-medium uppercase tracking-wide text-black/60 dark:border-white/10 dark:text-white/60">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto] gap-2 border-b border-black/10 bg-background px-4 py-2 text-xs font-medium uppercase tracking-wide text-black/60 dark:border-white/10 dark:text-white/60">
           <div>Date</div>
           <div>Merchant</div>
+          <div>Category</div>
           <div className="text-right">Amount</div>
         </div>
 
@@ -211,12 +213,21 @@ export default async function DashboardPage() {
         ) : (
           <div className="divide-y divide-black/10 dark:divide-white/10">
             {transactions.map((t) => (
-              <div key={t.id} className="grid grid-cols-3 gap-2 px-4 py-3 text-sm">
+              <div
+                key={t.id}
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_auto] items-center gap-2 px-4 py-3 text-sm"
+              >
                 <div className="tabular-nums text-black/70 dark:text-white/70">
                   {t.date}
                 </div>
-                <div className="font-medium truncate">{t.merchant}</div>
-                {/* 🎨 UI FIX: Green text for credits */}
+                <div className="min-w-0 font-medium truncate">{t.merchant}</div>
+                <div className="min-w-0">
+                  <TransactionCategorySelect
+                    transactionId={t.id}
+                    storedCategory={t.category}
+                    merchant={t.merchant}
+                  />
+                </div>
                 <div
                   className={`text-right tabular-nums font-medium ${
                     t.type === "credit"

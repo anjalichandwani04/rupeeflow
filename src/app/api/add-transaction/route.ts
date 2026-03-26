@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { NextResponse, type NextRequest } from "next/server";
 import { authOptions } from "@/lib/auth";
+import { categorizeMerchant, CATEGORY_OPTIONS, type Category } from "@/lib/finance";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type Body = {
@@ -27,10 +28,10 @@ export async function POST(req: NextRequest) {
   }
 
   const merchant = typeof body.merchant === "string" ? body.merchant.trim() : "";
-  const category =
+  const rawCategory =
     typeof body.category === "string" && body.category.trim().length > 0
       ? body.category.trim()
-      : "Other";
+      : undefined;
   const type = body.type === "credit" ? "credit" : "debit";
 
   const amountNum =
@@ -49,6 +50,11 @@ export async function POST(req: NextRequest) {
 
   const date =
     typeof body.date === "string" && body.date.length >= 10 ? body.date.slice(0, 10) : asISODate(new Date());
+
+  const category: Category =
+    rawCategory && (CATEGORY_OPTIONS as readonly string[]).includes(rawCategory)
+      ? (rawCategory as Category)
+      : categorizeMerchant(merchant);
 
   const supabase = supabaseAdmin();
   const { error } = await supabase.from("transactions").insert({

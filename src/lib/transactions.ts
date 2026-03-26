@@ -1,3 +1,4 @@
+import { categorizeMerchant } from "@/lib/finance";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type TransactionRow = {
@@ -41,6 +42,7 @@ export async function insertDemoSyncedTransaction(email: string) {
     merchant,
     amount,
     type: "debit",
+    category: categorizeMerchant(merchant),
   });
 
   if (error) throw error;
@@ -61,6 +63,7 @@ export async function insertTransactions(rows: NewTransactionInput[]) {
   const normalizedRows = rows.map((row) => ({
     ...row,
     type: row.type ?? "debit",
+    category: row.category ?? categorizeMerchant(row.merchant),
   }));
   const { error } = await supabase.from("transactions").upsert(normalizedRows, {
     onConflict: "user_email,date,merchant,amount",
@@ -95,6 +98,20 @@ export async function updateMonthlyBudget(email: string, amount: number) {
     { email, monthly_budget: amount },
     { onConflict: "email" },
   );
+  if (error) throw error;
+}
+
+export async function updateTransactionCategory(
+  email: string,
+  transactionId: string,
+  category: string,
+) {
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("transactions")
+    .update({ category })
+    .eq("id", transactionId)
+    .eq("user_email", email);
   if (error) throw error;
 }
 

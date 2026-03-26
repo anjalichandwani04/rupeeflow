@@ -17,23 +17,45 @@ export function formatINR(amount: number) {
   return formatted;
 }
 
-export type Category =
-  | "Food"
-  | "Shopping"
-  | "Travel"
-  | "Bills"
-  | "Subscriptions"
-  | "Transfers"
-  | "Other";
+/** Hybrid categories: auto-tag from merchant name; user can override in DB. */
+export type Category = "Food" | "Transport" | "Shopping" | "Other";
 
-export function categorizeMerchant(merchant: string): Category {
-  const m = merchant.toLowerCase();
+export const CATEGORY_OPTIONS: readonly Category[] = [
+  "Food",
+  "Transport",
+  "Shopping",
+  "Other",
+] as const;
 
-  if (/(swiggy|zomato|domino|pizza|kfc|mcd|restaurant|cafe)/.test(m)) return "Food";
-  if (/(amazon|flipkart|myntra|ajio|shopping)/.test(m)) return "Shopping";
-  if (/(uber|ola|irctc|makemytrip|goibibo|flight|hotel)/.test(m)) return "Travel";
-  if (/(electricity|water|gas|broadband|recharge|bill)/.test(m)) return "Bills";
-  if (/(netflix|spotify|prime|subscription|hotstar|zee5)/.test(m)) return "Subscriptions";
-  if (/(upi|transfer|imps|neft|rtgs)/.test(m)) return "Transfers";
+/**
+ * Auto-categorize from merchant string (used on Gmail save + fallback for legacy rows).
+ */
+export function categorizeMerchant(name: string): Category {
+  const m = name.toLowerCase();
+
+  if (/(swiggy|zomato|zepto|blinkit)/.test(m)) return "Food";
+  if (/(uber|rapido|ola|blusmart)/.test(m)) return "Transport";
+  if (/(amazon|myntra|nykaa|flipkart)/.test(m)) return "Shopping";
   return "Other";
+}
+
+/**
+ * Resolve chart/UI category: prefer stored `category`, map legacy values, else infer from merchant.
+ */
+export function resolveCategory(
+  stored: string | null | undefined,
+  merchant: string,
+): Category {
+  const s = stored?.trim();
+  if (
+    s === "Food" ||
+    s === "Transport" ||
+    s === "Shopping" ||
+    s === "Other"
+  ) {
+    return s;
+  }
+  if (s === "Travel" || s === "Transfers") return "Transport";
+  if (!s) return categorizeMerchant(merchant);
+  return categorizeMerchant(merchant);
 }

@@ -13,9 +13,9 @@ import { getMonthlyBudget, listTransactionsForUser } from "@/lib/transactions";
 import { GmailPreview } from "./GmailPreview";
 import { BudgetEditor } from "./BudgetEditor";
 import { ResetButton } from "./ResetButton";
-import { formatINR, resolveCategory } from "@/lib/finance";
+import { formatINR } from "@/lib/finance";
 import { TransactionCategorySelect } from "./TransactionCategorySelect";
-import { SpendingByCategoryChart } from "./SpendingByCategoryChart";
+import { BudgetPieChart } from "./BudgetPieChart";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -54,19 +54,11 @@ export default async function DashboardPage() {
   }
   const monthlyNet = monthCreditsTotal - monthDebitsTotal;
 
-  const byCategory = new Map<string, number>();
+  let totalDebitSpent = 0;
   for (const t of transactions) {
-    // 📁 CATEGORY FIX: Usually, we only want to chart actual spending (debits)
-    if (t.type === "credit") continue; 
-    
-    const category = resolveCategory(t.category, t.merchant);
-    byCategory.set(category, (byCategory.get(category) ?? 0) + (Number(t.amount) || 0));
+    if (t.type !== "debit") continue;
+    totalDebitSpent += Number(t.amount) || 0;
   }
-
-  const chartData = Array.from(byCategory.entries())
-    .map(([category, spent]) => ({ category, spent }))
-    .sort((a, b) => b.spent - a.spent)
-    .slice(0, 6);
 
   return (
     <div className="space-y-8">
@@ -172,14 +164,14 @@ export default async function DashboardPage() {
       <div className="overflow-hidden rounded-2xl border border-black/10 bg-white/40 p-4 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-white/5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-medium">Spending by category</p>
+            <p className="text-sm font-medium">Budget vs spending</p>
             <p className="text-sm text-black/60 dark:text-white/60">
-              Uses saved category (override in the table below)
+              Spent = sum of debit transactions; remaining = monthly budget minus spent
             </p>
           </div>
         </div>
         <div className="mt-4">
-          <SpendingByCategoryChart data={chartData.length ? chartData : [{ category: "Other", spent: 0 }]} />
+          <BudgetPieChart totalSpent={totalDebitSpent} monthlyBudget={monthlyBudget} />
         </div>
       </div>
 

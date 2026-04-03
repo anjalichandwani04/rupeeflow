@@ -1,3 +1,5 @@
+import { addCalendarDaysIso, isoToGmailSlashDate } from "@/lib/date-range";
+
 export type GmailPreviewItem = {
   id: string;
   date: string; // YYYY-MM-DD (from Gmail internalDate)
@@ -157,59 +159,37 @@ export function parseTransactionSnippet(snippet: string) {
   return { amount, merchant, parser: "Generic", type }; // Added type here
 }
 
-/** `YYYY-MM-DD` → `YYYY/MM/DD` for Gmail `after:` / `before:` operators */
-export function toGmailSlashDate(ymd: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
-  if (!m) throw new Error(`Invalid date (expected YYYY-MM-DD): ${ymd}`);
-  return `${m[1]}/${m[2]}/${m[3]}`;
-}
-
 export type GmailFetchDateRange = {
-  /** Inclusive start, `YYYY-MM-DD` */
-  startDate?: string;
-  /** Inclusive end, `YYYY-MM-DD` */
-  endDate?: string;
+  /** Inclusive start, `YYYY-MM-DD` (internal); Gmail query uses `after:YYYY/MM/DD`. */
+  startDate: string;
+  /** Inclusive end, `YYYY-MM-DD` (internal); Gmail uses exclusive `before:` on the next calendar day. */
+  endDate: string;
 };
 
-/** Add calendar days to `YYYY-MM-DD` (local date arithmetic). */
-function addDaysToYmd(ymd: string, days: number): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
-  if (!m) throw new Error(`Invalid date: ${ymd}`);
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  const dt = new Date(y, mo - 1, d);
-  dt.setDate(dt.getDate() + days);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
-function buildTransactionSearchQuery(range?: GmailFetchDateRange): string {
+function buildTransactionSearchQuery(range: GmailFetchDateRange): string {
   const base =
     '(debited OR credited OR "transaction alert" OR "spent") -newsletter -promotion -statement';
-  const parts: string[] = [base];
-
-  if (range?.startDate) {
-    parts.push(`after:${toGmailSlashDate(range.startDate)}`);
-  }
-  if (range?.endDate) {
-    // Gmail `before:` is exclusive; use the day after endDate so endDate is inclusive.
-    parts.push(`before:${toGmailSlashDate(addDaysToYmd(range.endDate, 1))}`);
-  }
-
-  return parts.join(" ");
+  const afterSlash = isoToGmailSlashDate(range.startDate);
+  const beforeExclusiveIso = addCalendarDaysIso(range.endDate, 1);
+  const beforeSlash = isoToGmailSlashDate(beforeExclusiveIso);
+  return `${base} after:${afterSlash} before:${beforeSlash}`;
 }
 
+export type FetchLatestTransactionEmailsResult = {
+  items: GmailPreviewItem[];
+  /** When nothing to import; not an error. */
+  message?: string;
+};
+
 /**
- * Fetches recent transaction-like emails. Optional date range uses Gmail `after:` / `before:`.
+ * Fetches recent transaction-like emails. Date range uses Gmail `after:YYYY/MM/DD` and
+ * `before:YYYY/MM/DD` (end date inclusive via exclusive boundary on the next day).
  */
 export async function fetchLatestTransactionEmails(
   accessToken: string,
   maxResults = 15,
-  range?: GmailFetchDateRange,
-) {
+  range: GmailFetchDateRange,
+): Promise<FetchLatestTransactionEmailsResult> {
   const q = buildTransactionSearchQuery(range);
 
   const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
@@ -227,6 +207,14 @@ export async function fetchLatestTransactionEmails(
 
   const listJson = (await listRes.json()) as { messages?: { id: string }[] };
   const ids = (listJson.messages ?? []).map((m) => m.id);
+
+  if (ids.length === 0) {
+    return {
+      items: [],
+      message:
+        "No emails matched this search in the selected date range. Try a wider range or different keywords in Gmail.",
+    };
+  }
 
   const items: GmailPreviewItem[] = [];
   for (const id of ids) {
@@ -260,7 +248,15 @@ export async function fetchLatestTransactionEmails(
     }
   }
 
-  return items;
+  if (items.length === 0) {
+    return {
+      items: [],
+      message:
+        "Gmail returned messages in this range, but none looked like transaction alerts (debited / credited / spent).",
+    };
+  }
+
+  return { items };
 }
 
 export async function fetchMessagesByIds(accessToken: string, ids: string[]) {

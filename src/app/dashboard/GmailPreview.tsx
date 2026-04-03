@@ -3,7 +3,22 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, CheckCircle2, Download, Loader2, Save, TriangleAlert } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle2,
+  Download,
+  Info,
+  Loader2,
+  Save,
+  TriangleAlert,
+} from "lucide-react";
+import {
+  GMAIL_DEFAULT_RANGE_DAYS,
+  isoToSlashYmd,
+  presetLastDays,
+  presetLastMonth,
+  resolveGmailRangeFromParams,
+} from "@/lib/date-range";
 
 type PreviewItem = {
   id: string;
@@ -30,26 +45,20 @@ function keyForTransaction(x: ExistingTransactionKey) {
   return `${x.date}|${x.merchant.trim().toLowerCase()}|${Number(x.amount).toFixed(2)}`;
 }
 
-function localYmd(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 export function GmailPreview({
   existingTransactions,
 }: {
   existingTransactions: ExistingTransactionKey[];
 }) {
   const router = useRouter();
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return localYmd(d);
-  });
-  const [endDate, setEndDate] = useState(() => localYmd(new Date()));
+  const [startDate, setStartDate] = useState(() =>
+    isoToSlashYmd(presetLastDays(GMAIL_DEFAULT_RANGE_DAYS).startIso),
+  );
+  const [endDate, setEndDate] = useState(() =>
+    isoToSlashYmd(presetLastDays(GMAIL_DEFAULT_RANGE_DAYS).endIso),
+  );
   const [items, setItems] = useState<PreviewItem[]>([]);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [isFetching, startFetching] = useTransition();
@@ -80,13 +89,37 @@ export function GmailPreview({
         <div>
           <p className="text-sm font-medium">Gmail preview (transaction emails)</p>
           <p className="text-sm text-black/60 dark:text-white/60">
-            Fetch up to 10 emails in the selected date range matching keywords like{" "}
-            <span className="font-medium">debited</span>,{" "}
-            <span className="font-medium">spent</span>, or{" "}
-            <span className="font-medium">transaction</span>, parse Amount + Merchant, then save.
+            Use <span className="font-medium">YYYY/MM/DD</span>. Leave both blank to search the{" "}
+            <span className="font-medium">last {GMAIL_DEFAULT_RANGE_DAYS} days</span>. Fetches up to 10 emails matching{" "}
+            <span className="font-medium">debited</span>, <span className="font-medium">spent</span>, or{" "}
+            <span className="font-medium">transaction</span>, then parse and save.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[min(100%,20rem)] sm:items-end">
+          <div className="flex flex-wrap items-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const p = presetLastDays(GMAIL_DEFAULT_RANGE_DAYS);
+                setStartDate(isoToSlashYmd(p.startIso));
+                setEndDate(isoToSlashYmd(p.endIso));
+              }}
+              className="h-8 rounded-md border border-black/10 px-2.5 text-xs font-medium text-black/70 hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/10"
+            >
+              Last {GMAIL_DEFAULT_RANGE_DAYS} days
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const p = presetLastMonth();
+                setStartDate(isoToSlashYmd(p.startIso));
+                setEndDate(isoToSlashYmd(p.endIso));
+              }}
+              className="h-8 rounded-md border border-black/10 px-2.5 text-xs font-medium text-black/70 hover:bg-black/5 dark:border-white/10 dark:text-white/70 dark:hover:bg-white/10"
+            >
+              Last month
+            </button>
+          </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex min-w-[10rem] flex-col gap-1">
               <span className="text-[10px] font-medium uppercase tracking-wide text-black/50 dark:text-white/50">
@@ -95,10 +128,13 @@ export function GmailPreview({
               <span className="relative flex items-center">
                 <Calendar className="pointer-events-none absolute left-2.5 h-4 w-4 text-black/40 dark:text-white/40" />
                 <input
-                  type="date"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="YYYY/MM/DD"
+                  autoComplete="off"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:focus-visible:ring-white/20"
+                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none placeholder:text-black/35 focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:placeholder:text-white/35 dark:focus-visible:ring-white/20"
                 />
               </span>
             </label>
@@ -109,10 +145,13 @@ export function GmailPreview({
               <span className="relative flex items-center">
                 <Calendar className="pointer-events-none absolute left-2.5 h-4 w-4 text-black/40 dark:text-white/40" />
                 <input
-                  type="date"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="YYYY/MM/DD"
+                  autoComplete="off"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:focus-visible:ring-white/20"
+                  className="h-10 w-full rounded-md border border-black/10 bg-background pl-9 pr-2 text-sm tabular-nums shadow-sm outline-none placeholder:text-black/35 focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:placeholder:text-white/35 dark:focus-visible:ring-white/20"
                 />
               </span>
             </label>
@@ -124,18 +163,41 @@ export function GmailPreview({
             onClick={() =>
               startFetching(async () => {
                 setError(null);
+                setInfoMessage(null);
                 setSavedCount(null);
-                const params = new URLSearchParams();
-                params.set("startDate", startDate);
-                params.set("endDate", endDate);
-                const res = await fetch(`/api/gmail/preview?${params.toString()}`);
-                const json = (await res.json()) as { items?: PreviewItem[]; error?: string };
-                if (!res.ok) {
-                  setError(json.error ?? "Failed to fetch Gmail preview");
+                const pre = resolveGmailRangeFromParams(startDate, endDate);
+                if (!pre.ok) {
+                  setError(pre.error);
                   setItems([]);
                   return;
                 }
-                setItems(json.items ?? []);
+                const params = new URLSearchParams();
+                const s = startDate.trim();
+                const e = endDate.trim();
+                if (s) params.set("start_date", s);
+                if (e) params.set("end_date", e);
+                const qs = params.toString();
+                const res = await fetch(
+                  qs ? `/api/gmail/preview?${qs}` : "/api/gmail/preview",
+                );
+                const json = (await res.json()) as {
+                  items?: PreviewItem[];
+                  error?: string;
+                  message?: string | null;
+                };
+                if (!res.ok) {
+                  setError(json.error ?? "Failed to fetch Gmail preview");
+                  setItems([]);
+                  setInfoMessage(null);
+                  return;
+                }
+                const nextItems = json.items ?? [];
+                setItems(nextItems);
+                setInfoMessage(
+                  nextItems.length === 0 && json.message
+                    ? json.message
+                    : null,
+                );
               })
             }
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-black dark:hover:bg-white/80"
@@ -149,6 +211,7 @@ export function GmailPreview({
             onClick={() =>
               startSaving(async () => {
                 setError(null);
+                setInfoMessage(null);
                 setSavedCount(null);
                 const res = await fetch("/api/gmail/save", {
                   method: "POST",
@@ -193,8 +256,15 @@ export function GmailPreview({
 
       {error ? (
         <div className="flex items-start gap-2 border-b border-black/10 px-4 py-3 text-sm text-red-700 dark:border-white/10 dark:text-red-300">
-          <TriangleAlert className="mt-0.5 h-4 w-4" />
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <div>{error}</div>
+        </div>
+      ) : null}
+
+      {infoMessage && !error ? (
+        <div className="flex items-start gap-2 border-b border-black/10 bg-black/[0.02] px-4 py-3 text-sm text-black/70 dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-black/50 dark:text-white/50" />
+          <div>{infoMessage}</div>
         </div>
       ) : null}
 
@@ -235,7 +305,7 @@ export function GmailPreview({
 
       {items.length === 0 ? (
         <div className="px-4 py-10 text-sm text-black/60 dark:text-white/60">
-          Nothing fetched yet.
+          {infoMessage ? null : "Nothing fetched yet."}
         </div>
       ) : (
         <div className="divide-y divide-black/10 dark:divide-white/10">

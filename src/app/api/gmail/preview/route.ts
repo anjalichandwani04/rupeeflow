@@ -1,19 +1,9 @@
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
+import { resolveGmailRangeFromParams } from "@/lib/date-range";
 import { fetchLatestTransactionEmails } from "@/lib/google/gmail";
 import { getValidGoogleAccessToken } from "@/lib/supabase/nextauth-admin";
-
-const YMD = /^\d{4}-\d{2}-\d{2}$/;
-
-function parseYmd(s: string | null): string | undefined {
-  if (!s) return undefined;
-  const t = s.trim();
-  if (!YMD.test(t)) return undefined;
-  const d = new Date(t + "T12:00:00");
-  if (Number.isNaN(d.getTime())) return undefined;
-  return t;
-}
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -23,29 +13,25 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const startDate = parseYmd(searchParams.get("startDate"));
-  const endDate = parseYmd(searchParams.get("endDate"));
+  const resolved = resolveGmailRangeFromParams(
+    searchParams.get("start_date"),
+    searchParams.get("end_date"),
+  );
 
-  if (searchParams.has("startDate") && !startDate) {
-    return NextResponse.json({ error: "Invalid startDate (use YYYY-MM-DD)" }, { status: 400 });
+  if (!resolved.ok) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
   }
-  if (searchParams.has("endDate") && !endDate) {
-    return NextResponse.json({ error: "Invalid endDate (use YYYY-MM-DD)" }, { status: 400 });
-  }
-  if (startDate && endDate && startDate > endDate) {
-    return NextResponse.json({ error: "startDate must be on or before endDate" }, { status: 400 });
-  }
+
+  const range = { startDate: resolved.startIso, endDate: resolved.endIso };
 
   try {
     const accessToken = await getValidGoogleAccessToken(userId);
-    const range =
-      startDate || endDate ? { startDate, endDate } : undefined;
-    const items = await fetchLatestTransactionEmails(accessToken, 10, range);
-    return NextResponse.json({ items });
+    const { items, message } = await fetchLatestTransactionEmails(accessToken, 10, range);
+    return NextResponse.json({ items, message: message ?? null });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
+    const err = e instanceof Error ? e.message : "Unknown error";
 
-    if (message.includes("401")) {
+    if (err.includes("401")) {
       return NextResponse.json(
         {
           error:
@@ -55,6 +41,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: err }, { status: 500 });
   }
 }

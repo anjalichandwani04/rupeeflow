@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getAccessTokenFromGmailTokenEnvOrFile } from "@/lib/google/gmail-token-source";
 import { refreshGoogleAccessToken } from "@/lib/google/oauth";
 
 /**
@@ -29,8 +30,17 @@ export type GoogleAccountRow = {
 
 /**
  * Returns a valid Google access token for Gmail API calls, refreshing and persisting when needed.
+ *
+ * If `process.env.GMAIL_TOKEN` is set (JSON from Google), or `scripts/token.json` exists, that
+ * token is used first (with refresh via `GMAIL_CREDENTIALS` / `credentials.json` / `GOOGLE_*`).
+ * Otherwise uses OAuth tokens stored in Supabase (`next_auth.accounts`).
  */
 export async function getValidGoogleAccessToken(userId: string): Promise<string> {
+  const fromEnvOrFile = await getAccessTokenFromGmailTokenEnvOrFile();
+  if (fromEnvOrFile) {
+    return fromEnvOrFile;
+  }
+
   const supabase = supabaseNextAuthAdmin();
   const { data: row, error } = await supabase
     .from("accounts")

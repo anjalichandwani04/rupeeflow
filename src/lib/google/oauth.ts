@@ -11,9 +11,12 @@ function getRequiredEnv(name: string) {
   return v;
 }
 
-export async function refreshGoogleAccessToken(refreshToken: string) {
-  const clientId = getRequiredEnv("GOOGLE_CLIENT_ID");
-  const clientSecret = getRequiredEnv("GOOGLE_CLIENT_SECRET");
+export async function refreshGoogleAccessToken(
+  refreshToken: string,
+  client?: { clientId: string; clientSecret: string },
+) {
+  const clientId = client?.clientId ?? getRequiredEnv("GOOGLE_CLIENT_ID");
+  const clientSecret = client?.clientSecret ?? getRequiredEnv("GOOGLE_CLIENT_SECRET");
 
   const body = new URLSearchParams({
     client_id: clientId,

@@ -2,13 +2,13 @@
 """
 Gmail OAuth2 helper for installed apps (token.json + client secrets).
 
-Token sources (first match wins):
-  1. scripts/token.json on disk
-  2. GMAIL_TOKEN env var (JSON string, parsed with json.loads)
+Token sources (first match wins; matches Vercel / Node behavior):
+  1. GMAIL_TOKEN env var (JSON string, parsed with json.loads)
+  2. scripts/token.json on disk
 
 Client secrets for the browser flow (first match wins):
-  1. scripts/credentials.json on disk
-  2. GMAIL_CREDENTIALS env var (JSON string, parsed with json.loads)
+  1. GMAIL_CREDENTIALS env var (JSON string, parsed with json.loads)
+  2. scripts/credentials.json on disk
 
 Self-healing: failed refresh (RefreshError or HTTP 400) deletes token.json and
 re-runs the browser flow with offline access + consent so Google issues a
@@ -64,17 +64,8 @@ def _is_http_400_error(exc: BaseException) -> bool:
 
 def _load_credentials_from_token_source() -> Credentials | None:
     """
-    Prefer token.json; if missing, use GMAIL_TOKEN (JSON string via json.loads).
+    Prefer GMAIL_TOKEN (json.loads); if unset or empty, use token.json.
     """
-    token_file = str(TOKEN_PATH)
-    if os.path.isfile(token_file):
-        try:
-            return Credentials.from_authorized_user_file(token_file, SCOPES)
-        except (ValueError, KeyError, OSError):
-            print("token.json was unreadable. Re-authenticating...")
-            _remove_token_file()
-            return None
-
     raw = os.environ.get("GMAIL_TOKEN")
     if raw is not None and str(raw).strip():
         try:
@@ -86,17 +77,22 @@ def _load_credentials_from_token_source() -> Credentials | None:
             print(f"GMAIL_TOKEN env JSON was invalid ({e}). Re-authenticating...")
             return None
 
+    token_file = str(TOKEN_PATH)
+    if os.path.isfile(token_file):
+        try:
+            return Credentials.from_authorized_user_file(token_file, SCOPES)
+        except (ValueError, KeyError, OSError):
+            print("token.json was unreadable. Re-authenticating...")
+            _remove_token_file()
+            return None
+
     return None
 
 
 def _load_client_config_dict() -> dict:
     """
-    Load OAuth client JSON from credentials.json or GMAIL_CREDENTIALS (json.loads).
+    Load OAuth client JSON from GMAIL_CREDENTIALS (json.loads) or credentials.json.
     """
-    if CREDENTIALS_PATH.is_file():
-        with open(CREDENTIALS_PATH, encoding="utf-8") as f:
-            return json.load(f)
-
     raw = os.environ.get("GMAIL_CREDENTIALS")
     if raw is not None and str(raw).strip():
         try:
@@ -107,9 +103,12 @@ def _load_client_config_dict() -> dict:
         except json.JSONDecodeError as e:
             raise ValueError(f"GMAIL_CREDENTIALS is not valid JSON: {e}") from e
 
+    if CREDENTIALS_PATH.is_file():
+        with open(CREDENTIALS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+
     raise FileNotFoundError(
-        "Missing OAuth client config: add scripts/credentials.json or set "
-        "GMAIL_CREDENTIALS to the downloaded client JSON string."
+        "Missing OAuth client config: set GMAIL_CREDENTIALS or add scripts/credentials.json."
     )
 
 

@@ -4,6 +4,18 @@ import { getAccessTokenFromGmailTokenEnvOrFile } from "@/lib/google/gmail-token-
 import { refreshGoogleAccessToken } from "@/lib/google/oauth";
 import { GMAIL_REAUTH_REQUIRED } from "@/lib/google/reauth";
 
+/** `expires_at` from Postgres may be number, string, or bigint — normalize to Unix seconds. */
+function coerceExpiresAtSeconds(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 /**
  * Service-role client scoped to the `next_auth` schema (Auth.js / @auth/supabase-adapter).
  * Used to read/update OAuth tokens in `next_auth.accounts` when using database sessions.
@@ -54,13 +66,22 @@ export async function getValidGoogleAccessToken(userId: string): Promise<string>
   if (hasDbTokens && row) {
     let accessToken = row.access_token ?? "";
     const refreshToken = row.refresh_token;
-    const expiresAtSec = row.expires_at;
-
+    const expiresAtSec = coerceExpiresAtSeconds(row.expires_at);
     const expiresAtMs =
-      typeof expiresAtSec === "number" ? expiresAtSec * 1000 : null;
-    const needsRefresh =
-      !accessToken ||
-      (expiresAtMs !== null && expiresAtMs <= Date.now() + 30_000);
+      expiresAtSec !== null ? expiresAtSec * 1000 : null;
+
+    const tokenLikelyExpired =
+      expiresAtMs === null || expiresAtMs <= Date.now() + 30_000;
+
+    // Access token but no refresh token: only safe if expiry is still in the future
+    if (accessToken && !refreshToken) {
+      if (tokenLikelyExpired) {
+        throw new Error(GMAIL_REAUTH_REQUIRED);
+      }
+      return accessToken;
+    }
+
+    const needsRefresh = !accessToken || tokenLikelyExpired;
 
     if (needsRefresh) {
       if (!refreshToken) {

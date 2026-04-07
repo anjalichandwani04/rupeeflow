@@ -13,7 +13,22 @@ export function responseIndicatesInvalidGrant(status: number, body: string): boo
   return false;
 }
 
+/**
+ * True when Gmail/Google rejected credentials (vs e.g. quota 403).
+ * Avoid treating every 403 as "sign in again" — quota and API-not-enabled use 403 too.
+ */
 export function gmailApiRequiresReauth(status: number, body: string): boolean {
-  if (status === 401 || status === 403) return true;
-  return responseIndicatesInvalidGrant(status, body);
+  if (status === 401) return true;
+  if (responseIndicatesInvalidGrant(status, body)) return true;
+  if (status === 403) {
+    const t = body.toLowerCase();
+    return (
+      t.includes("unauthenticated") ||
+      t.includes("invalid_grant") ||
+      t.includes("invalid authentication") ||
+      (t.includes("oauth") && t.includes("invalid")) ||
+      t.includes("insufficient authentication")
+    );
+  }
+  return false;
 }

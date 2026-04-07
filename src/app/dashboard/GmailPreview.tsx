@@ -19,6 +19,7 @@ import {
   presetLastMonth,
   resolveGmailRangeFromParams,
 } from "@/lib/date-range";
+import { GMAIL_REAUTH_REQUIRED } from "@/lib/google/reauth";
 
 type PreviewItem = {
   id: string;
@@ -186,7 +187,12 @@ export function GmailPreview({
                   message?: string | null;
                 };
                 if (!res.ok) {
-                  setError(json.error ?? "Failed to fetch Gmail preview");
+                  const err = json.error ?? "Failed to fetch Gmail preview";
+                  setError(
+                    err === GMAIL_REAUTH_REQUIRED
+                      ? "Google needs you to sign in again for Gmail access. Sign out, then sign back in."
+                      : String(err),
+                  );
                   setItems([]);
                   setInfoMessage(null);
                   return;

@@ -1,3 +1,8 @@
+import {
+  GMAIL_REAUTH_REQUIRED,
+  responseIndicatesInvalidGrant,
+} from "@/lib/google/reauth";
+
 type GoogleTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -31,15 +36,18 @@ export async function refreshGoogleAccessToken(
     body,
   });
 
+  const text = await res.text();
+
   if (!res.ok) {
-    const text = await res.text();
+    if (responseIndicatesInvalidGrant(res.status, text)) {
+      throw new Error(GMAIL_REAUTH_REQUIRED);
+    }
     throw new Error(`Failed to refresh Google token: ${res.status} ${text}`);
   }
 
-  const json = (await res.json()) as GoogleTokenResponse;
+  const json = JSON.parse(text) as GoogleTokenResponse;
   return {
     accessToken: json.access_token,
     accessTokenExpiresAt: Date.now() + json.expires_in * 1000,
   };
 }
-

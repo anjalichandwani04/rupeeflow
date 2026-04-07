@@ -1,4 +1,5 @@
 import { addCalendarDaysIso, isoToGmailSlashDate } from "@/lib/date-range";
+import { GMAIL_REAUTH_REQUIRED, gmailApiRequiresReauth } from "@/lib/google/reauth";
 
 export type GmailPreviewItem = {
   id: string;
@@ -202,6 +203,9 @@ export async function fetchLatestTransactionEmails(
 
   if (!listRes.ok) {
     const text = await listRes.text();
+    if (gmailApiRequiresReauth(listRes.status, text)) {
+      throw new Error(GMAIL_REAUTH_REQUIRED);
+    }
     throw new Error(`Gmail list failed: ${listRes.status} ${text}`);
   }
 
@@ -222,7 +226,13 @@ export async function fetchLatestTransactionEmails(
     const msgRes = await fetch(msgUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!msgRes.ok) continue;
+    if (!msgRes.ok) {
+      const text = await msgRes.text();
+      if (gmailApiRequiresReauth(msgRes.status, text)) {
+        throw new Error(GMAIL_REAUTH_REQUIRED);
+      }
+      continue;
+    }
 
     const msgJson = (await msgRes.json()) as {
       id: string;
@@ -266,7 +276,13 @@ export async function fetchMessagesByIds(accessToken: string, ids: string[]) {
     const msgRes = await fetch(msgUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!msgRes.ok) continue;
+    if (!msgRes.ok) {
+      const text = await msgRes.text();
+      if (gmailApiRequiresReauth(msgRes.status, text)) {
+        throw new Error(GMAIL_REAUTH_REQUIRED);
+      }
+      continue;
+    }
     const msgJson = (await msgRes.json()) as {
       id: string;
       snippet?: string;

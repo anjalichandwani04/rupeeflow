@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { resolveGmailRangeFromParams } from "@/lib/date-range";
 import { fetchLatestTransactionEmails } from "@/lib/google/gmail";
+import { GMAIL_REAUTH_REQUIRED } from "@/lib/google/reauth";
 import { getValidGoogleAccessToken } from "@/lib/supabase/nextauth-admin";
 
 export async function GET(req: NextRequest) {
@@ -29,21 +30,17 @@ export async function GET(req: NextRequest) {
     const { items, message } = await fetchLatestTransactionEmails(accessToken, 10, range);
     return NextResponse.json({ items, message: message ?? null });
   } catch (e) {
-    // THIS LOGS THE REAL ERROR TO VERCEL/TERMINAL
-    console.error("FULL GMAIL ERROR:", e); 
-    
-    const err = e instanceof Error ? e.message : String(e);
-
-    // This helps us see if it's a 400, 401, or 403
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === GMAIL_REAUTH_REQUIRED) {
+      return NextResponse.json(
+        { error: GMAIL_REAUTH_REQUIRED },
+        { status: 401 },
+      );
+    }
+    console.error("Gmail preview error:", e);
     return NextResponse.json(
-      { 
-        error: `Gmail Error: ${err}`, 
-        details: e instanceof Error ? e.stack : undefined 
-      }, 
-      { status: 500 }
+      { error: msg },
+      { status: 500 },
     );
   }
-
-//     return NextResponse.json({ error: err }, { status: 500 });
-//   }
 }

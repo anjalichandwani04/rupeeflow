@@ -29,18 +29,21 @@ export async function GET(req: NextRequest) {
     const { items, message } = await fetchLatestTransactionEmails(accessToken, 10, range);
     return NextResponse.json({ items, message: message ?? null });
   } catch (e) {
-    const err = e instanceof Error ? e.message : "Unknown error";
+    // THIS LOGS THE REAL ERROR TO VERCEL/TERMINAL
+    console.error("FULL GMAIL ERROR:", e); 
+    
+    const err = e instanceof Error ? e.message : String(e);
 
-    if (err.includes("401")) {
-      return NextResponse.json(
-        {
-          error:
-            "Gmail unauthorized. Please sign out and sign in again to grant Gmail access.",
-        },
-        { status: 401 },
-      );
-    }
-
-    return NextResponse.json({ error: err }, { status: 500 });
+    // This helps us see if it's a 400, 401, or 403
+    return NextResponse.json(
+      { 
+        error: `Gmail Error: ${err}`, 
+        details: e instanceof Error ? e.stack : undefined 
+      }, 
+      { status: 500 }
+    );
   }
+
+//     return NextResponse.json({ error: err }, { status: 500 });
+//   }
 }

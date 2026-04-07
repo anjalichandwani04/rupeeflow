@@ -176,130 +176,230 @@ function buildTransactionSearchQuery(range: GmailFetchDateRange): string {
   return `${base} after:${afterSlash} before:${beforeSlash}`;
 }
 
+/** Gmail allows up to 500 IDs per list request. */
+const GMAIL_LIST_PAGE_MAX = 500;
+
+/** Hard cap on how many messages we list + fetch (Vercel timeout / abuse guard). */
+export const GMAIL_FETCH_SAFETY_CAP = 500;
+
+/** Concurrent message-detail fetches per batch (Promise.all size). */
+const GMAIL_MESSAGE_FETCH_BATCH = 20;
+
 export type FetchLatestTransactionEmailsResult = {
   items: GmailPreviewItem[];
   /** When nothing to import; not an error. */
   message?: string;
+  /** How many message IDs matched the Gmail search (before snippet filtering). */
+  listedCount?: number;
+  /** True if listing stopped at {@link GMAIL_FETCH_SAFETY_CAP}. */
+  capped?: boolean;
 };
 
+export type FetchTransactionEmailsOptions = {
+  /** Override default safety cap (default {@link GMAIL_FETCH_SAFETY_CAP}). */
+  safetyCap?: number;
+};
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 /**
- * Fetches recent transaction-like emails. Date range uses Gmail `after:YYYY/MM/DD` and
- * `before:YYYY/MM/DD` (end date inclusive via exclusive boundary on the next day).
+ * Paginates through `users.messages.list` until no `nextPageToken` or safety cap.
+ */
+async function listAllMatchingMessageIds(
+  accessToken: string,
+  q: string,
+  safetyCap: number,
+): Promise<{ ids: string[]; capped: boolean }> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+
+  while (ids.length < safetyCap) {
+    const remaining = safetyCap - ids.length;
+    const maxResults = Math.min(GMAIL_LIST_PAGE_MAX, remaining);
+
+    const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+    listUrl.searchParams.set("q", q);
+    listUrl.searchParams.set("maxResults", String(maxResults));
+    if (pageToken) listUrl.searchParams.set("pageToken", pageToken);
+
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!listRes.ok) {
+      const text = await listRes.text();
+      if (gmailApiRequiresReauth(listRes.status, text)) {
+        throw new Error(GMAIL_REAUTH_REQUIRED);
+      }
+      throw new Error(`Gmail list failed: ${listRes.status} ${text}`);
+    }
+
+    const listJson = (await listRes.json()) as {
+      messages?: { id: string }[];
+      nextPageToken?: string;
+    };
+
+    const pageIds = (listJson.messages ?? []).map((m) => m.id);
+    let consumedAllPage = true;
+    for (const id of pageIds) {
+      if (ids.length >= safetyCap) {
+        consumedAllPage = false;
+        break;
+      }
+      ids.push(id);
+    }
+
+    if (ids.length >= safetyCap) {
+      const capped = Boolean(listJson.nextPageToken) || !consumedAllPage;
+      return { ids, capped };
+    }
+
+    if (!listJson.nextPageToken || pageIds.length === 0) break;
+    pageToken = listJson.nextPageToken;
+  }
+
+  return { ids, capped: false };
+}
+
+async function fetchOneMessagePreview(
+  accessToken: string,
+  id: string,
+): Promise<GmailPreviewItem | null> {
+  const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
+  const msgRes = await fetch(msgUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!msgRes.ok) {
+    const text = await msgRes.text();
+    if (gmailApiRequiresReauth(msgRes.status, text)) {
+      throw new Error(GMAIL_REAUTH_REQUIRED);
+    }
+    return null;
+  }
+
+  const msgJson = (await msgRes.json()) as {
+    id: string;
+    snippet?: string;
+    internalDate?: string;
+  };
+
+  const snippet = msgJson.snippet ?? "";
+  const internalDateMs = msgJson.internalDate ? Number(msgJson.internalDate) : NaN;
+  const date = Number.isFinite(internalDateMs)
+    ? new Date(internalDateMs).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  const lowerSnippet = snippet.toLowerCase();
+  if (
+    !lowerSnippet.includes("debited") &&
+    !lowerSnippet.includes("credited") &&
+    !lowerSnippet.includes("spent")
+  ) {
+    return null;
+  }
+
+  return {
+    id: msgJson.id,
+    date,
+    snippet,
+    parsed: parseTransactionSnippet(snippet),
+  };
+}
+
+/**
+ * Fetches all transaction-like emails in range (paginated list + batched detail fetches).
+ * Date range uses Gmail `after:YYYY/MM/DD` and `before:YYYY/MM/DD` (end inclusive via next-day boundary).
  */
 export async function fetchLatestTransactionEmails(
   accessToken: string,
-  maxResults = 15,
   range: GmailFetchDateRange,
+  options?: FetchTransactionEmailsOptions,
 ): Promise<FetchLatestTransactionEmailsResult> {
+  const safetyCap = Math.min(
+    options?.safetyCap ?? GMAIL_FETCH_SAFETY_CAP,
+    GMAIL_FETCH_SAFETY_CAP,
+  );
   const q = buildTransactionSearchQuery(range);
 
-  const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
-  listUrl.searchParams.set("q", q);
-  listUrl.searchParams.set("maxResults", String(maxResults));
-
-  const listRes = await fetch(listUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!listRes.ok) {
-    const text = await listRes.text();
-    if (gmailApiRequiresReauth(listRes.status, text)) {
-      throw new Error(GMAIL_REAUTH_REQUIRED);
-    }
-    throw new Error(`Gmail list failed: ${listRes.status} ${text}`);
-  }
-
-  const listJson = (await listRes.json()) as { messages?: { id: string }[] };
-  const ids = (listJson.messages ?? []).map((m) => m.id);
+  const { ids, capped } = await listAllMatchingMessageIds(accessToken, q, safetyCap);
 
   if (ids.length === 0) {
     return {
       items: [],
       message:
         "No emails matched this search in the selected date range. Try a wider range or different keywords in Gmail.",
+      listedCount: 0,
+      capped: false,
     };
   }
 
   const items: GmailPreviewItem[] = [];
-  for (const id of ids) {
-    const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
-    const msgRes = await fetch(msgUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!msgRes.ok) {
-      const text = await msgRes.text();
-      if (gmailApiRequiresReauth(msgRes.status, text)) {
-        throw new Error(GMAIL_REAUTH_REQUIRED);
-      }
-      continue;
-    }
-
-    const msgJson = (await msgRes.json()) as {
-      id: string;
-      snippet?: string;
-      internalDate?: string;
-    };
-
-    const snippet = msgJson.snippet ?? "";
-    const internalDateMs = msgJson.internalDate ? Number(msgJson.internalDate) : NaN;
-    const date = Number.isFinite(internalDateMs)
-      ? new Date(internalDateMs).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
-
-    // Final safety check: ignore if snippet doesn't actually contain a money keyword
-    const lowerSnippet = snippet.toLowerCase();
-    if (lowerSnippet.includes("debited") || lowerSnippet.includes("credited") || lowerSnippet.includes("spent")) {
-      items.push({
-        id: msgJson.id,
-        date,
-        snippet,
-        parsed: parseTransactionSnippet(snippet),
-      });
+  for (const batch of chunk(ids, GMAIL_MESSAGE_FETCH_BATCH)) {
+    const batchResults = await Promise.all(
+      batch.map((id) => fetchOneMessagePreview(accessToken, id)),
+    );
+    for (const row of batchResults) {
+      if (row) items.push(row);
     }
   }
 
+  let message: string | undefined;
   if (items.length === 0) {
-    return {
-      items: [],
-      message:
-        "Gmail returned messages in this range, but none looked like transaction alerts (debited / credited / spent).",
-    };
+    message =
+      "Gmail returned messages in this range, but none looked like transaction alerts (debited / credited / spent).";
+  } else if (capped) {
+    message = `Showing up to ${ids.length} messages (safety cap ${GMAIL_FETCH_SAFETY_CAP}). Narrow the date range if you need a smaller set.`;
   }
 
-  return { items };
+  return {
+    items,
+    message,
+    listedCount: ids.length,
+    capped,
+  };
 }
 
 export async function fetchMessagesByIds(accessToken: string, ids: string[]) {
   const items: GmailPreviewItem[] = [];
-  for (const id of ids) {
-    const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
-    const msgRes = await fetch(msgUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!msgRes.ok) {
-      const text = await msgRes.text();
-      if (gmailApiRequiresReauth(msgRes.status, text)) {
-        throw new Error(GMAIL_REAUTH_REQUIRED);
-      }
-      continue;
+  for (const batch of chunk(ids, GMAIL_MESSAGE_FETCH_BATCH)) {
+    const batchResults = await Promise.all(
+      batch.map(async (id) => {
+        const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
+        const msgRes = await fetch(msgUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!msgRes.ok) {
+          const text = await msgRes.text();
+          if (gmailApiRequiresReauth(msgRes.status, text)) {
+            throw new Error(GMAIL_REAUTH_REQUIRED);
+          }
+          return null;
+        }
+        const msgJson = (await msgRes.json()) as {
+          id: string;
+          snippet?: string;
+          internalDate?: string;
+        };
+        const snippet = msgJson.snippet ?? "";
+        const internalDateMs = msgJson.internalDate ? Number(msgJson.internalDate) : NaN;
+        const date = Number.isFinite(internalDateMs)
+          ? new Date(internalDateMs).toISOString().slice(0, 10)
+          : new Date().toISOString().slice(0, 10);
+        return {
+          id: msgJson.id,
+          date,
+          snippet,
+          parsed: parseTransactionSnippet(snippet),
+        } satisfies GmailPreviewItem;
+      }),
+    );
+    for (const row of batchResults) {
+      if (row) items.push(row);
     }
-    const msgJson = (await msgRes.json()) as {
-      id: string;
-      snippet?: string;
-      internalDate?: string;
-    };
-    const snippet = msgJson.snippet ?? "";
-    const internalDateMs = msgJson.internalDate ? Number(msgJson.internalDate) : NaN;
-    const date = Number.isFinite(internalDateMs)
-      ? new Date(internalDateMs).toISOString().slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
-
-    items.push({
-      id: msgJson.id,
-      date,
-      snippet,
-      parsed: parseTransactionSnippet(snippet),
-    });
   }
   return items;
 }

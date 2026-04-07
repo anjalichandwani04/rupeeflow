@@ -91,9 +91,8 @@ export function GmailPreview({
           <p className="text-sm font-medium">Gmail preview (transaction emails)</p>
           <p className="text-sm text-black/60 dark:text-white/60">
             Use <span className="font-medium">YYYY/MM/DD</span>. Leave both blank to search the{" "}
-            <span className="font-medium">last {GMAIL_DEFAULT_RANGE_DAYS} days</span>. Fetches up to 10 emails matching{" "}
-            <span className="font-medium">debited</span>, <span className="font-medium">spent</span>, or{" "}
-            <span className="font-medium">transaction</span>, then parse and save.
+            <span className="font-medium">last {GMAIL_DEFAULT_RANGE_DAYS} days</span>. Fetches{" "}
+            <span className="font-medium">all</span> matching emails in range (up to 500 per fetch), then parse and save.
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[min(100%,20rem)] sm:items-end">
@@ -185,6 +184,8 @@ export function GmailPreview({
                   items?: PreviewItem[];
                   error?: string;
                   message?: string | null;
+                  listedCount?: number | null;
+                  capped?: boolean;
                 };
                 if (!res.ok) {
                   const err = json.error ?? "Failed to fetch Gmail preview";
@@ -199,17 +200,20 @@ export function GmailPreview({
                 }
                 const nextItems = json.items ?? [];
                 setItems(nextItems);
-                setInfoMessage(
-                  nextItems.length === 0 && json.message
-                    ? json.message
-                    : null,
-                );
+                const summary =
+                  json.listedCount != null && json.listedCount > 0
+                    ? `${json.listedCount} message${json.listedCount === 1 ? "" : "s"} matched in Gmail.`
+                    : "";
+                const combined = [json.message, summary].filter(Boolean).join(" ");
+                setInfoMessage(combined || null);
               })
             }
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-black px-3 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-white dark:text-black dark:hover:bg-white/80"
           >
             <Download className="h-4 w-4" />
-            {isFetching ? "Fetching…" : "Fetch"}
+            {isFetching
+              ? "Loading all matching emails…"
+              : "Fetch"}
           </button>
           <button
             type="button"
@@ -259,6 +263,16 @@ export function GmailPreview({
           </div>
         </div>
       </div>
+
+      {isFetching ? (
+        <div className="flex items-center gap-2 border-b border-black/10 bg-black/[0.03] px-4 py-2.5 text-sm text-black/70 dark:border-white/10 dark:bg-white/[0.06] dark:text-white/75">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <span>
+            Listing and loading every matching message in your date range — large inboxes may take
+            a little while.
+          </span>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="flex items-start gap-2 border-b border-black/10 px-4 py-3 text-sm text-red-700 dark:border-white/10 dark:text-red-300">

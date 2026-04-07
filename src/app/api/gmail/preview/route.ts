@@ -27,8 +27,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const accessToken = await getValidGoogleAccessToken(userId);
-    const { items, message } = await fetchLatestTransactionEmails(accessToken, 10, range);
-    return NextResponse.json({ items, message: message ?? null });
+    const { items, message, listedCount, capped } =
+      await fetchLatestTransactionEmails(accessToken, range);
+    return NextResponse.json({
+      items,
+      message: message ?? null,
+      listedCount: listedCount ?? null,
+      capped: capped ?? false,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === GMAIL_REAUTH_REQUIRED) {
